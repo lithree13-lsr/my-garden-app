@@ -1,5 +1,3 @@
-export const config = { runtime: "edge" };
-
 const MODELS = {
   claude: {
     url: "https://api.anthropic.com/v1/messages",
@@ -23,31 +21,26 @@ const MODELS = {
   },
 };
 
-export default async function handler(req) {
+export default async function handler(req, res) {
   if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { modelId, system, message } = await req.json();
-
+  const { modelId, system, message } = req.body;
   const model = MODELS[modelId];
+
   if (!model) {
-    return new Response(JSON.stringify({ error: "Unknown model" }), { status: 400 });
+    return res.status(400).json({ error: "Unknown model" });
   }
 
   const apiKey = process.env[model.envKey];
   if (!apiKey) {
-    return new Response(
-      JSON.stringify({ error: `${modelId} is not configured yet` }),
-      { status: 503 }
-    );
+    return res.status(503).json({ error: `${modelId} is not configured yet` });
   }
 
   try {
-    let upstreamRes;
-
     if (modelId === "claude") {
-      upstreamRes = await fetch(model.url, {
+      const r = await fetch(model.url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -57,12 +50,10 @@ export default async function handler(req) {
           messages: [{ role: "user", content: message }],
         }),
       });
-      const d = await upstreamRes.json();
+      const d = await r.json();
       if (d.error) throw new Error(d.error.message);
       const text = d.content?.map(b => b.text || "").join("") || "";
-      return new Response(JSON.stringify({ text }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return res.status(200).json({ text });
 
     } else {
       const modelNames = {
@@ -71,7 +62,7 @@ export default async function handler(req) {
         kimi: "moonshot-v1-8k",
         zhipu: "glm-4-flash",
       };
-      upstreamRes = await fetch(model.url, {
+      const r = await fetch(model.url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -85,17 +76,12 @@ export default async function handler(req) {
           ],
         }),
       });
-      const d = await upstreamRes.json();
+      const d = await r.json();
       if (d.error) throw new Error(typeof d.error === "string" ? d.error : d.error.message);
       const text = d.choices?.[0]?.message?.content || "";
-      return new Response(JSON.stringify({ text }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return res.status(200).json({ text });
     }
   } catch (e) {
-    return new Response(JSON.stringify({ error: e.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return res.status(500).json({ error: e.message });
   }
 }
