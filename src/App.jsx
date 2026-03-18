@@ -299,6 +299,58 @@ const styles = `
   }
   .prose tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
 
+  /* ── Model Selector ── */
+  .model-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .model-btn {
+    flex: 1;
+    min-width: 80px;
+    padding: 10px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(168,197,160,0.18);
+    background: transparent;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.18s;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: rgba(232,237,230,0.4);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .model-btn .model-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    opacity: 0.5;
+    transition: opacity 0.18s;
+  }
+
+  .model-btn.active-claude   { border-color: rgba(200,168,75,0.5);  background: rgba(200,168,75,0.08);  color: var(--gold); }
+  .model-btn.active-qwen     { border-color: rgba(122,158,126,0.5); background: rgba(122,158,126,0.08); color: var(--sage); }
+  .model-btn.active-deepseek { border-color: rgba(123,167,188,0.5); background: rgba(123,167,188,0.08); color: var(--sky); }
+  .model-btn.active-kimi     { border-color: rgba(167,139,250,0.5); background: rgba(167,139,250,0.08); color: #a78bfa; }
+  .model-btn.active-zhipu    { border-color: rgba(96,165,250,0.5);  background: rgba(96,165,250,0.08);  color: #60a5fa; }
+
+  .model-btn.active-claude   .model-dot { background: var(--gold);  opacity: 1; }
+  .model-btn.active-qwen     .model-dot { background: var(--sage);  opacity: 1; }
+  .model-btn.active-deepseek .model-dot { background: var(--sky);   opacity: 1; }
+  .model-btn.active-kimi     .model-dot { background: #a78bfa;      opacity: 1; }
+  .model-btn.active-zhipu    .model-dot { background: #60a5fa;      opacity: 1; }
+
+  .model-note {
+    font-size: 10px;
+    color: rgba(232,237,230,0.3);
+    letter-spacing: 0.06em;
+    margin-top: -4px;
+  }
+
   /* ── Error ── */
   .error {
     margin: 0 24px 24px;
@@ -348,29 +400,57 @@ const SUNLIGHT = ["☀️ Full Sun","🌤 Part Shade","🌑 Full Shade"];
 const STYLES   = ["Modern","Cottage","Zen","Mediterranean","Tropical","Rain Garden"];
 const LANGS    = ["English","中文"];
 
-export default function App() {
-  const [city, setCity]         = useState("");
-  const [type, setType]         = useState("");
-  const [sun, setSun]           = useState(SUNLIGHT[0]);
-  const [plant, setPlant]       = useState("");
-  const [style, setStyle]       = useState(STYLES[0]);
-  const [lang, setLang]         = useState("English");
-  const [loading, setLoading]   = useState(false);
-  const [result, setResult]     = useState(null);
-  const [error, setError]       = useState(null);
+// OpenAI-compatible helper
+async function openaiCall(url, sys, msg, key, model) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "system", content: sys }, { role: "user", content: msg }],
+    }),
+  });
+  const d = await r.json();
+  if (d.error) throw new Error(typeof d.error === "string" ? d.error : d.error.message);
+  return d.choices?.[0]?.message?.content || "";
+}
 
-  const ok = city.trim() && type.trim() && plant.trim() && !loading;
-
-  async function generate() {
-    setLoading(true); setResult(null); setError(null);
-    const sys = lang === "中文"
-      ? `你是专业景观植物搭配设计师。根据用户信息生成完整植物搭配方案，使用Markdown格式（标题、表格、列表）。包括：气候分析、全套植物库（乔木/灌木/多年生/草类/地被等层次，每种含名称、尺寸、阳光、浇水、养护难度⭐、花期、搭配理由）、设计技巧（色彩/结构/质感/季相/生态）。详细专业。`
-      : `You are an expert landscape planting designer. Generate a complete planting palette in Markdown (headings, tables, lists). Include: climate zone analysis, full layered palette (canopy, understory, shrubs, perennials, grasses, groundcovers — each with name, size, sun, water, care ⭐–⭐⭐⭐, bloom, pairing rationale), design tips (color, structure, texture, seasons, ecology, invasives). Be thorough and inspiring.`;
-    const msg = lang === "中文"
-      ? `城市：${city}\n项目：${type}\n阳光：${sun}\n风格：${style}\n核心植物：${plant}\n请生成完整方案。`
-      : `City: ${city}\nProject: ${type}\nSun: ${sun}\nStyle: ${style}\nAnchor: ${plant}\nGenerate complete planting palette.`;
-    try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
+const MODELS = [
+  {
+    id: "zhipu",
+    label: "智谱 GLM",
+    note: "智谱AI · 支持图片",
+    url: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    call: (url, sys, msg, key) => openaiCall(url, sys, msg, key, "glm-4-flash"),
+  },
+  {
+    id: "qwen",
+    label: "通义千问",
+    note: "阿里 · 国内最稳定",
+    url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    call: (url, sys, msg, key) => openaiCall(url, sys, msg, key, "qwen-plus"),
+  },
+  {
+    id: "deepseek",
+    label: "DeepSeek",
+    note: "深度求索 · 价格最低",
+    url: "https://api.deepseek.com/chat/completions",
+    call: (url, sys, msg, key) => openaiCall(url, sys, msg, key, "deepseek-chat"),
+  },
+  {
+    id: "kimi",
+    label: "Kimi",
+    note: "月之暗面 · 输出最详细",
+    url: "https://api.moonshot.cn/v1/chat/completions",
+    call: (url, sys, msg, key) => openaiCall(url, sys, msg, key, "moonshot-v1-8k"),
+  },
+  {
+    id: "claude",
+    label: "Claude",
+    note: "Anthropic · 植物知识最深",
+    url: "https://api.anthropic.com/v1/messages",
+    call: async (url, sys, msg) => {
+      const r = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -382,7 +462,43 @@ export default function App() {
       });
       const d = await r.json();
       if (d.error) throw new Error(d.error.message);
-      setResult(d.content?.map(b=>b.text||"").join("")||"");
+      return d.content?.map(b => b.text || "").join("") || "";
+    },
+  },
+];
+
+export default function App() {
+  const [city, setCity]         = useState("");
+  const [type, setType]         = useState("");
+  const [sun, setSun]           = useState(SUNLIGHT[0]);
+  const [plant, setPlant]       = useState("");
+  const [style, setStyle]       = useState(STYLES[0]);
+  const [lang, setLang]         = useState("English");
+  const [modelId, setModelId]   = useState("zhipu");
+  const [loading, setLoading]   = useState(false);
+  const [result, setResult]     = useState(null);
+  const [error, setError]       = useState(null);
+
+  const selectedModel = MODELS.find(m => m.id === modelId);
+  const ok = city.trim() && type.trim() && plant.trim() && !loading;
+
+  async function generate() {
+    setLoading(true); setResult(null); setError(null);
+    const system = lang === "中文"
+      ? `你是专业景观植物搭配设计师。根据用户信息生成完整植物搭配方案，使用Markdown格式（标题、表格、列表）。包括：气候分析、全套植物库（乔木/灌木/多年生/草类/地被等层次，每种含名称、尺寸、阳光、浇水、养护难度⭐、花期、搭配理由）、设计技巧（色彩/结构/质感/季相/生态）。详细专业。`
+      : `You are an expert landscape planting designer. Generate a complete planting palette in Markdown (headings, tables, lists). Include: climate zone analysis, full layered palette (canopy, understory, shrubs, perennials, grasses, groundcovers — each with name, size, sun, water, care ⭐–⭐⭐⭐, bloom, pairing rationale), design tips (color, structure, texture, seasons, ecology, invasives). Be thorough and inspiring.`;
+    const message = lang === "中文"
+      ? `城市：${city}\n项目：${type}\n阳光：${sun}\n风格：${style}\n核心植物：${plant}\n请生成完整方案。`
+      : `City: ${city}\nProject: ${type}\nSun: ${sun}\nStyle: ${style}\nAnchor: ${plant}\nGenerate complete planting palette.`;
+    try {
+      const r = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ modelId, system, message }),
+      });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      setResult(d.text);
     } catch(e) { setError(e.message); }
     finally { setLoading(false); }
   }
@@ -432,6 +548,23 @@ export default function App() {
           </div>
 
           <div className="field">
+            <label>🤖 AI Model</label>
+            <div className="model-row">
+              {MODELS.map(m => (
+                <button
+                  key={m.id}
+                  className={`model-btn${modelId === m.id ? ` active-${m.id}` : ""}`}
+                  onClick={() => { setModelId(m.id); setResult(null); setError(null); }}
+                >
+                  <div className="model-dot" />
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <div className="model-note">{selectedModel.note}</div>
+          </div>
+
+          <div className="field">
             <label>🌐 Language</label>
             <div className="segment">
               {LANGS.map(o=>(
@@ -459,7 +592,7 @@ export default function App() {
           <div className="result">
             <div className="divider" />
             <div className="result-heading">{plant} Palette</div>
-            <div className="result-meta">{city} · {sun} · {style}</div>
+            <div className="result-meta">{city} · {sun} · {style} · {selectedModel.label}</div>
             <div className="prose" dangerouslySetInnerHTML={{__html: renderMd(result)}} />
           </div>
         )}
